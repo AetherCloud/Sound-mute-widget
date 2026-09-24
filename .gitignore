@@ -13,3 +13,6 @@ keystore.properties
 
 # Release build output
 app/release/
+
+# Local release artifacts
+/dist/
