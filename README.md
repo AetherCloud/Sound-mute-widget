@@ -43,23 +43,6 @@ just the widget.
   `Canvas`/`Paint`, no UI framework.
 - Single source file: `app/src/main/java/dk/ftb/soundmutewidget/MuteWidget.kt`.
 
-## Building
-
-```sh
-./gradlew installDebug     # build and install on a connected device (development)
-./gradlew assembleRelease  # signed release APK (requires keystore.properties, see below)
-./gradlew bundleRelease    # AAB for the Play Store
-```
-
-Release signing is read from `keystore.properties` in the project root (gitignored):
-
-```properties
-storeFile=soundmutewidget.jks
-storePassword=...
-keyAlias=soundmutewidget
-keyPassword=...
-```
-
 ## AI disclosure
 
 This app was developed with the assistance of AI (Claude, by Anthropic): the widget's
