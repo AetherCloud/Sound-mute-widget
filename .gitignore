@@ -10,3 +10,6 @@ captures/
 # Signing — never commit these
 keystore.properties
 *.jks
+
+# Release build output
+app/release/
