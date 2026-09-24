@@ -1,0 +1,61 @@
+<?xml version="1.0" encoding="utf-8"?>
+<FrameLayout xmlns:android="http://schemas.android.com/apk/res/android"
+	android:id="@+id/widget_root"
+	android:layout_width="match_parent"
+	android:layout_height="match_parent">
+
+	<!--
+		Two stacked layers, each a two-child ViewFlipper, so the mute feedback is a
+		single launcher-side transition: the ring layer rotates the filled ring away
+		while the empty ring fades in, and the center layer swaps the percentage for
+		the muted glyph. These animations run on the launcher's frame loop, i.e. at
+		the display's refresh rate — no cross-process frame stepping. The layers are
+		separate so the rotation never spins the text.
+	-->
+	<ViewFlipper
+		android:id="@+id/ring_flipper"
+		android:layout_width="match_parent"
+		android:layout_height="match_parent"
+		android:inAnimation="@anim/ring_in"
+		android:outAnimation="@anim/ring_out">
+
+		<ImageView
+			android:id="@+id/ring_a"
+			android:layout_width="match_parent"
+			android:layout_height="match_parent"
+			android:contentDescription="@string/widget_mute_description"
+			android:scaleType="fitCenter" />
+
+		<ImageView
+			android:id="@+id/ring_b"
+			android:layout_width="match_parent"
+			android:layout_height="match_parent"
+			android:importantForAccessibility="no"
+			android:scaleType="fitCenter" />
+
+	</ViewFlipper>
+
+	<ViewFlipper
+		android:id="@+id/center_flipper"
+		android:layout_width="match_parent"
+		android:layout_height="match_parent"
+		android:inAnimation="@anim/center_in"
+		android:outAnimation="@anim/center_out">
+
+		<ImageView
+			android:id="@+id/center_a"
+			android:layout_width="match_parent"
+			android:layout_height="match_parent"
+			android:importantForAccessibility="no"
+			android:scaleType="fitCenter" />
+
+		<ImageView
+			android:id="@+id/center_b"
+			android:layout_width="match_parent"
+			android:layout_height="match_parent"
+			android:importantForAccessibility="no"
+			android:scaleType="fitCenter" />
+
+	</ViewFlipper>
+
+</FrameLayout>

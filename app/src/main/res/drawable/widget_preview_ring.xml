@@ -1,0 +1,23 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- Static stand-in for the runtime-rendered ring: a faint full track with a
+     bright arc up to the preview volume (65%), starting at 12 o'clock. Colors
+     resolve through values-night, so the preview matches the OS theme like the
+     widget's canvas rendering does. -->
+<vector xmlns:android="http://schemas.android.com/apk/res/android"
+	android:width="42dp"
+	android:height="42dp"
+	android:viewportWidth="100"
+	android:viewportHeight="100">
+
+	<path
+		android:pathData="M50,50 m-42,0 a42,42 0 1,1 84,0 a42,42 0 1,1 -84,0"
+		android:strokeColor="@color/widget_preview_track"
+		android:strokeWidth="5.5" />
+
+	<path
+		android:pathData="M50,8 A42,42 0 1 1 16.02,74.69"
+		android:strokeColor="@color/widget_preview_content"
+		android:strokeLineCap="round"
+		android:strokeWidth="5.5" />
+
+</vector>

@@ -1,0 +1,25 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- The picker preview: the same ring-plus-percentage face the widget renders
+     at runtime, but static — RemoteViews-compatible, so the launcher can
+     inflate it directly. -->
+<FrameLayout xmlns:android="http://schemas.android.com/apk/res/android"
+	android:layout_width="match_parent"
+	android:layout_height="match_parent">
+
+	<ImageView
+		android:layout_width="match_parent"
+		android:layout_height="match_parent"
+		android:importantForAccessibility="no"
+		android:scaleType="fitCenter"
+		android:src="@drawable/widget_preview_ring" />
+
+	<TextView
+		android:layout_width="wrap_content"
+		android:layout_height="wrap_content"
+		android:layout_gravity="center"
+		android:text="65%"
+		android:textColor="@color/widget_preview_content"
+		android:textSize="9sp"
+		android:textStyle="bold" />
+
+</FrameLayout>

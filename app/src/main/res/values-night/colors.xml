@@ -1,0 +1,6 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+	<!-- Dark theme values, matching the widget's canvas palette (COLOR_CONTENT_DARK / COLOR_TRACK_DARK). -->
+	<color name="widget_preview_content">#FFFFFFFF</color>
+	<color name="widget_preview_track">#33FFFFFF</color>
+</resources>

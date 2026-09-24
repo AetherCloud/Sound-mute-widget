@@ -1,0 +1,4 @@
+<resources>
+	<string name="app_name">Sound mute widget</string>
+	<string name="widget_mute_description">Media volume — tap to mute</string>
+</resources>
