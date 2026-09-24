@@ -21,6 +21,10 @@ just the widget.
 - **Survives reboots and updates** — the widget re-renders and re-registers its listeners on
   `BOOT_COMPLETED` and `MY_PACKAGE_REPLACED`.
 - **Theme aware** — the palette follows the system light/dark theme, re-rendered when it flips.
+- **Headphone aware** — with Bluetooth or wired headphones connected, tapping is a no-op so
+  their volume is never zeroed (Android applies `setStreamVolume` to the active output), and
+  the ring and percentage tint blue (Bluetooth) or brass (wired) to show where the audio is
+  going. The tint updates the moment a device connects or disconnects.
 - **No permissions beyond boot** — volume control via `AudioManager` needs no permission; the
   only declared permission is `RECEIVE_BOOT_COMPLETED`.
 
@@ -31,9 +35,9 @@ just the widget.
 2. The ring and centre are drawn with Canvas at the widget's density, then set as bitmaps via
    `RemoteViews` — the launcher animates the flip between the two children of each layer.
 3. Tapping sends a broadcast to the provider, which calls `setStreamVolume(STREAM_MUSIC, 0)`
-   and plays the sweep transition; because Android has no public volume-changed broadcast,
-   live updates also hook the (hidden but stable) `AudioService` broadcast and observe the
-   settings tables.
+   and plays the sweep transition — unless headphones are connected, in which case the tap
+   does nothing; because Android has no public volume-changed broadcast, live updates also
+   hook the (hidden but stable) `AudioService` broadcast and observe the settings tables.
 
 ## Tech notes
 
