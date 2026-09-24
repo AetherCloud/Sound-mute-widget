@@ -17,6 +17,7 @@ import android.graphics.Paint
 import android.graphics.RectF
 import android.graphics.Typeface
 import android.graphics.drawable.VectorDrawable
+import android.media.AudioDeviceInfo
 import android.media.AudioManager
 import android.os.Handler
 import android.os.Looper
@@ -43,18 +44,24 @@ class MuteWidget : AppWidgetProvider() {
 				// before anything else, so it survives the next kill too.
 				scheduleHeartbeat(context)
 				val audio = context.getSystemService(Context.AUDIO_SERVICE) as AudioManager
-				val previousVolume = audio.getStreamVolume(AudioManager.STREAM_MUSIC)
-				audio.setStreamVolume(AudioManager.STREAM_MUSIC, 0, AudioManager.FLAG_SHOW_UI)
+				if (headphoneOutput(audio) == HeadphoneOutput.NONE) {
+					val previousVolume = audio.getStreamVolume(AudioManager.STREAM_MUSIC)
+					audio.setStreamVolume(AudioManager.STREAM_MUSIC, 0, AudioManager.FLAG_SHOW_UI)
 
-				// Only confirm visually if the volume really is 0 now — setStreamVolume is
-				// synchronous, so re-reading verifies the mute actually took effect.
-				if (audio.getStreamVolume(AudioManager.STREAM_MUSIC) == 0) {
-					val maxVolume = audio.getStreamMaxVolume(AudioManager.STREAM_MUSIC)
-					if (previousVolume > 0 && maxVolume > 0) {
-						playSweep(context, previousVolume.toFloat() / maxVolume)
-					} else {
-						showMutedFace(context)
+					// Only confirm visually if the volume really is 0 now — setStreamVolume is
+					// synchronous, so re-reading verifies the mute actually took effect.
+					if (audio.getStreamVolume(AudioManager.STREAM_MUSIC) == 0) {
+						val maxVolume = audio.getStreamMaxVolume(AudioManager.STREAM_MUSIC)
+						if (previousVolume > 0 && maxVolume > 0) {
+							playSweep(context, previousVolume.toFloat() / maxVolume)
+						} else {
+							showMutedFace(context)
+						}
 					}
+				} else {
+					// setStreamVolume targets whichever output is active, so with
+					// headphones connected a mute would zero THEIR volume — the one
+					// thing this button must never do. The tap is a deliberate no-op.
 				}
 			}
 			// The widget's process — and with it the volume observer — does not survive a
@@ -75,6 +82,38 @@ class MuteWidget : AppWidgetProvider() {
 		}
 		super.onReceive(context, intent)
 	}
+
+	/**
+	 * Which non-speaker output, if any, headphones are connected through. Two
+	 * consumers: the tap guard (`setStreamVolume` acts on whichever device is
+	 * active, so while headphones are connected a mute would zero THEIR volume —
+	 * on absolute-volume headsets, their own hardware level too), and the face's
+	 * accent, which tints blue for Bluetooth and copper for wired so the ring
+	 * says where the audio is going. Connected-not-active is fine to treat as
+	 * connected: Android routes to headphones the moment they plug in or pair,
+	 * and if both are connected at once, Bluetooth wins the tint.
+	 */
+	private fun headphoneOutput(audio: AudioManager): HeadphoneOutput {
+		val types = audio.getDevices(AudioManager.GET_DEVICES_OUTPUTS).map { it.type }
+		return when {
+			types.any {
+				it == AudioDeviceInfo.TYPE_BLUETOOTH_A2DP ||
+					it == AudioDeviceInfo.TYPE_BLUETOOTH_SCO ||
+					it == AudioDeviceInfo.TYPE_BLE_HEADSET
+			} -> HeadphoneOutput.BLUETOOTH
+
+			types.any {
+				it == AudioDeviceInfo.TYPE_WIRED_HEADPHONES ||
+					it == AudioDeviceInfo.TYPE_WIRED_HEADSET ||
+					it == AudioDeviceInfo.TYPE_USB_HEADSET
+			} -> HeadphoneOutput.WIRED
+
+			else -> HeadphoneOutput.NONE
+		}
+	}
+
+	/** An output the user hears instead of the speaker, or none for the speaker itself. */
+	private enum class HeadphoneOutput { BLUETOOTH, WIRED, NONE }
 
 	/**
 	 * Feedback when the widget is pressed while already muted: the same
@@ -187,7 +226,11 @@ class MuteWidget : AppWidgetProvider() {
 		// Theme-aware palette, picked at render time so the face matches the OS.
 		val dark = (context.resources.configuration.uiMode and Configuration.UI_MODE_NIGHT_MASK) ==
 			Configuration.UI_MODE_NIGHT_YES
-		val content = if (dark) COLOR_CONTENT_DARK else COLOR_CONTENT_LIGHT
+		val content = when (headphoneOutput(audio)) {
+			HeadphoneOutput.BLUETOOTH -> if (dark) COLOR_BLUETOOTH_DARK else COLOR_BLUETOOTH_LIGHT
+			HeadphoneOutput.WIRED -> if (dark) COLOR_COPPER_DARK else COLOR_COPPER_LIGHT
+			HeadphoneOutput.NONE -> if (dark) COLOR_CONTENT_DARK else COLOR_CONTENT_LIGHT
+		}
 		val trackColor = if (dark) COLOR_TRACK_DARK else COLOR_TRACK_LIGHT
 
 		val ringStroke = max(3f, faceSizeDp * 0.055f) * density
@@ -231,7 +274,11 @@ class MuteWidget : AppWidgetProvider() {
 
 		val dark = (context.resources.configuration.uiMode and Configuration.UI_MODE_NIGHT_MASK) ==
 			Configuration.UI_MODE_NIGHT_YES
-		val content = if (dark) COLOR_CONTENT_DARK else COLOR_CONTENT_LIGHT
+		val content = when (headphoneOutput(audio)) {
+			HeadphoneOutput.BLUETOOTH -> if (dark) COLOR_BLUETOOTH_DARK else COLOR_BLUETOOTH_LIGHT
+			HeadphoneOutput.WIRED -> if (dark) COLOR_COPPER_DARK else COLOR_COPPER_LIGHT
+			HeadphoneOutput.NONE -> if (dark) COLOR_CONTENT_DARK else COLOR_CONTENT_LIGHT
+		}
 		val mutedColor = if (dark) COLOR_MUTED_DARK else COLOR_MUTED_LIGHT
 
 		if (fraction > 0f) {
@@ -383,6 +430,21 @@ class MuteWidget : AppWidgetProvider() {
 				IntentFilter(Intent.ACTION_CONFIGURATION_CHANGED),
 				Context.RECEIVER_NOT_EXPORTED,
 			)
+			// Headphone connect/disconnect — re-renders so the ring picks up or
+			// drops its blue/copper tint the moment the output changes. HEADSET_PLUG
+			// covers wired (it is sticky, so registration also fires for the current
+			// state); the A2DP broadcast covers Bluetooth. Hidden API, but stable
+			// for years — same bet as the volume broadcast above.
+			context.registerReceiver(
+				volumeReceiver,
+				IntentFilter(AudioManager.ACTION_HEADSET_PLUG),
+				Context.RECEIVER_NOT_EXPORTED,
+			)
+			context.registerReceiver(
+				volumeReceiver,
+				IntentFilter(ACTION_A2DP_CONNECTION_STATE),
+				Context.RECEIVER_NOT_EXPORTED,
+			)
 			// Fallback: the settings-table write lags the broadcast slightly, but it
 			// catches OEMs that don't send it. Observing both roots with descendants
 			// covers whichever table the OEM stores volumes in.
@@ -398,6 +460,8 @@ class MuteWidget : AppWidgetProvider() {
 		private const val ACTION_HEARTBEAT = "dk.ftb.soundmutewidget.ACTION_HEARTBEAT"
 		private const val ACTION_VOLUME_CHANGED = "android.media.VOLUME_CHANGED_ACTION"
 		private const val ACTION_STREAM_MUTE_CHANGED = "android.media.STREAM_MUTE_CHANGED_ACTION"
+		private const val ACTION_A2DP_CONNECTION_STATE =
+			"android.bluetooth.a2dp.profile.action.CONNECTION_STATE_CHANGED"
 		private const val UPDATE_DEBOUNCE_MS = 150L
 
 		/**
@@ -444,6 +508,14 @@ class MuteWidget : AppWidgetProvider() {
 		private const val COLOR_CONTENT_LIGHT = 0xFF1B1B1F.toInt()
 		private const val COLOR_TRACK_LIGHT = 0x241B1B1F
 		private const val COLOR_MUTED_LIGHT = 0xFFD93036.toInt()
+
+		// Headphone tints, swapped in for the content color while the audio is
+		// routed somewhere other than the speaker — the ring and percentage read
+		// as Bluetooth (blue) or wired (copper) at a glance.
+		private const val COLOR_BLUETOOTH_DARK = 0xFF4EA8FF.toInt()
+		private const val COLOR_BLUETOOTH_LIGHT = 0xFF0082FC.toInt()
+		private const val COLOR_COPPER_DARK = 0xFFE6B75A.toInt()
+		private const val COLOR_COPPER_LIGHT = 0xFFB5761B.toInt()
 
 		@Volatile
 		private var observerRegistered = false
