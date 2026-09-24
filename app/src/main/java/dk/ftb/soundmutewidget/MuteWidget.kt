@@ -97,8 +97,8 @@ class MuteWidget : AppWidgetProvider() {
 	 * The outgoing frame loads onto whichever child is currently displayed (a
 	 * bitmap swap there is instant, so the sweep always starts from what's on
 	 * screen) and the flip goes to the other child — flipping to the child that's
-	 * already showing would be a no-op with no animation, so the target
-	 * alternates and [updateAllWidgets] re-syncs to child A.
+	 * already showing would replay only the in-animation, with no outgoing frame,
+	 * so the target alternates and [updateAllWidgets] re-syncs to child A.
 	 */
 	private fun playSweep(context: Context, fromFraction: Float) {
 		val manager = AppWidgetManager.getInstance(context)
@@ -129,9 +129,13 @@ class MuteWidget : AppWidgetProvider() {
 	 * makes sure the volume observer is registered and the heartbeat armed — every
 	 * render is also a chance to come back to life after the process was killed.
 	 *
-	 * A fresh render loads child A of each flipper and flips back to it — an
-	 * explicit re-sync of [displayedChild], which the process can't otherwise know
-	 * after a restart (the launcher keeps the flipper state we last applied).
+	 * The fresh face goes into BOTH children of each flipper: after a restart the
+	 * process can't know which child the launcher is showing (it keeps whatever
+	 * state we last applied), so whichever is on screen must be refreshed. The
+	 * flipper itself is only touched when it needs re-syncing to child A —
+	 * setDisplayedChild replays the in-animation even on the child that is
+	 * already displayed, which would read as a flash on every volume change
+	 * and every heartbeat.
 	 */
 	private fun updateAllWidgets(context: Context) {
 		val manager = AppWidgetManager.getInstance(context)
@@ -139,10 +143,16 @@ class MuteWidget : AppWidgetProvider() {
 		if (ids.isEmpty()) return
 		ensureLiveUpdates(context.applicationContext)
 		val views = RemoteViews(context.packageName, R.layout.widget_mute)
-		views.setImageViewBitmap(R.id.ring_a, renderRing(context, FACE_SIZE_DP))
-		views.setImageViewBitmap(R.id.center_a, renderCenter(context, FACE_SIZE_DP))
-		views.setInt(R.id.ring_flipper, "setDisplayedChild", 0)
-		views.setInt(R.id.center_flipper, "setDisplayedChild", 0)
+		val ring = renderRing(context, FACE_SIZE_DP)
+		val center = renderCenter(context, FACE_SIZE_DP)
+		views.setImageViewBitmap(R.id.ring_a, ring)
+		views.setImageViewBitmap(R.id.ring_b, ring)
+		views.setImageViewBitmap(R.id.center_a, center)
+		views.setImageViewBitmap(R.id.center_b, center)
+		if (displayedChild != 0) {
+			views.setInt(R.id.ring_flipper, "setDisplayedChild", 0)
+			views.setInt(R.id.center_flipper, "setDisplayedChild", 0)
+		}
 		views.setOnClickPendingIntent(R.id.widget_root, mutePendingIntent(context))
 		manager.updateAppWidget(ids, views)
 		displayedChild = 0
