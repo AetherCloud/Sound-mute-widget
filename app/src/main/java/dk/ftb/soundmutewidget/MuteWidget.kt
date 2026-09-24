@@ -412,9 +412,9 @@ class MuteWidget : AppWidgetProvider() {
 
 		/**
 		 * How long volume updates hold off after a sweep, covering the longest
-		 * transition (the ring's 350ms) plus launcher scheduling slop.
+		 * transition (the ring's 210ms) plus launcher scheduling slop.
 		 */
-		private const val SWEEP_SETTLE_MS = 550L
+		private const val SWEEP_SETTLE_MS = 410L
 
 		/**
 		 * Which flipper child is on screen. Sweeps alternate the target (flipping
