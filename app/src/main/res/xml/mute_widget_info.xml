@@ -1,10 +1,14 @@
 <?xml version="1.0" encoding="utf-8"?>
+<!-- updatePeriodMillis is a keep-alive, not a live refresh: the 30-minute floor
+     is the system minimum, and each firing revives a killed process, which
+     re-renders the face and re-registers the volume observers, so live updates
+     resume. -->
 <appwidget-provider xmlns:android="http://schemas.android.com/apk/res/android"
 	android:minWidth="40dp"
 	android:minHeight="40dp"
 	android:targetCellWidth="1"
 	android:targetCellHeight="1"
-	android:updatePeriodMillis="0"
+	android:updatePeriodMillis="1800000"
 	android:initialLayout="@layout/widget_mute"
 	android:previewLayout="@layout/widget_mute_preview"
 	android:previewImage="@drawable/widget_preview_ring"

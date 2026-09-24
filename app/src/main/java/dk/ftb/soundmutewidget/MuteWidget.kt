@@ -1,5 +1,6 @@
 package dk.ftb.soundmutewidget
 
+import android.app.AlarmManager
 import android.app.PendingIntent
 import android.appwidget.AppWidgetManager
 import android.appwidget.AppWidgetProvider
@@ -19,6 +20,7 @@ import android.graphics.drawable.VectorDrawable
 import android.media.AudioManager
 import android.os.Handler
 import android.os.Looper
+import android.os.PowerManager
 import android.os.SystemClock
 import android.provider.Settings
 import android.widget.RemoteViews
@@ -37,6 +39,9 @@ class MuteWidget : AppWidgetProvider() {
 	override fun onReceive(context: Context, intent: Intent) {
 		when (intent.action) {
 			ACTION_MUTE -> {
+				// The tap may be what revived a killed process — re-arm the heartbeat
+				// before anything else, so it survives the next kill too.
+				scheduleHeartbeat(context)
 				val audio = context.getSystemService(Context.AUDIO_SERVICE) as AudioManager
 				val previousVolume = audio.getStreamVolume(AudioManager.STREAM_MUSIC)
 				audio.setStreamVolume(AudioManager.STREAM_MUSIC, 0, AudioManager.FLAG_SHOW_UI)
@@ -53,7 +58,18 @@ class MuteWidget : AppWidgetProvider() {
 				}
 			}
 			// The widget's process — and with it the volume observer — does not survive a
-			// reboot or app update. These broadcasts revive us, so re-render and re-register.
+			// reboot, app update, or OEM cache kill. These paths revive us, so re-render
+			// and re-register.
+			ACTION_HEARTBEAT -> {
+				val power = context.getSystemService(Context.POWER_SERVICE) as PowerManager
+				if (power.isInteractive) {
+					updateAllWidgets(context)
+				} else if (hasPlacedWidgets(context)) {
+					// Screen off — nothing visible to keep fresh. Keep the chain armed
+					// (device idle defers it anyway) so it resumes when the screen does.
+					scheduleHeartbeat(context)
+				}
+			}
 			Intent.ACTION_BOOT_COMPLETED,
 			Intent.ACTION_MY_PACKAGE_REPLACED -> updateAllWidgets(context)
 		}
@@ -110,17 +126,18 @@ class MuteWidget : AppWidgetProvider() {
 
 	/**
 	 * Redraws every placed instance of the widget with the current media volume, and
-	 * makes sure the volume observer is registered — every render is also a chance to
-	 * come back to life after the process was killed.
+	 * makes sure the volume observer is registered and the heartbeat armed — every
+	 * render is also a chance to come back to life after the process was killed.
 	 *
 	 * A fresh render loads child A of each flipper and flips back to it — an
 	 * explicit re-sync of [displayedChild], which the process can't otherwise know
 	 * after a restart (the launcher keeps the flipper state we last applied).
 	 */
 	private fun updateAllWidgets(context: Context) {
-		ensureLiveUpdates(context.applicationContext)
 		val manager = AppWidgetManager.getInstance(context)
 		val ids = manager.getAppWidgetIds(ComponentName(context, MuteWidget::class.java))
+		if (ids.isEmpty()) return
+		ensureLiveUpdates(context.applicationContext)
 		val views = RemoteViews(context.packageName, R.layout.widget_mute)
 		views.setImageViewBitmap(R.id.ring_a, renderRing(context, FACE_SIZE_DP))
 		views.setImageViewBitmap(R.id.center_a, renderCenter(context, FACE_SIZE_DP))
@@ -129,6 +146,7 @@ class MuteWidget : AppWidgetProvider() {
 		views.setOnClickPendingIntent(R.id.widget_root, mutePendingIntent(context))
 		manager.updateAppWidget(ids, views)
 		displayedChild = 0
+		scheduleHeartbeat(context)
 	}
 
 	/**
@@ -234,10 +252,11 @@ class MuteWidget : AppWidgetProvider() {
 	 * hardware volume keys) are caught two ways, both only while the widget's
 	 * process is alive: a hidden-but-stable AudioService broadcast fired
 	 * immediately on every change, and — as a fallback for OEMs that don't send
-	 * it — an observer on the settings tables the volumes live in. Android keeps
-	 * the process cached for a while after any interaction, then quietly stops
-	 * live updates until the widget is touched or the system refreshes it. That
-	 * is the tradeoff for not running a service.
+	 * it — an observer on the settings tables the volumes live in. OEMs kill the
+	 * cached process on their own schedule — One UI within a minute or two —
+	 * which takes these signals with it, so [updateAllWidgets] also arms the
+	 * heartbeat alarm to revive us about once a minute while the screen is on.
+	 * That is the tradeoff for not running a service.
 	 */
 	private inner class VolumeObserver(context: Context, handler: Handler) : ContentObserver(handler) {
 		private val appContext = context.applicationContext
@@ -271,14 +290,48 @@ class MuteWidget : AppWidgetProvider() {
 		val context = liveContext ?: return
 		if (updateScheduled) return
 		updateScheduled = true
-		updateHandler.postDelayed({
-			updateScheduled = false
-			// A pulse in flight owns the display — running now would cut the
-			// highlight short. The pulse's settle render includes fresh volume.
-			if (SystemClock.elapsedRealtime() >= pulseUntil) {
-				updateAllWidgets(context)
+		val pendingUpdate = object : Runnable {
+			override fun run() {
+				// A pulse in flight owns the display — running now would cut the
+				// highlight short, so wait for the sweep to settle instead of
+				// dropping the change on the floor.
+				val wait = pulseUntil - SystemClock.elapsedRealtime()
+				if (wait > 0) {
+					updateHandler.postDelayed(this, wait)
+				} else {
+					updateScheduled = false
+					updateAllWidgets(context)
+				}
 			}
-		}, UPDATE_DEBOUNCE_MS)
+		}
+		updateHandler.postDelayed(pendingUpdate, UPDATE_DEBOUNCE_MS)
+	}
+
+	private fun hasPlacedWidgets(context: Context): Boolean =
+		AppWidgetManager.getInstance(context)
+			.getAppWidgetIds(ComponentName(context, MuteWidget::class.java))
+			.isNotEmpty()
+
+	/**
+	 * Arms the one-shot alarm that revives the process if One UI (or anything
+	 * else) kills it: on firing, [ACTION_HEARTBEAT] re-renders the face,
+	 * re-registers the volume observers, and re-arms the chain — a
+	 * self-perpetuating cycle with no service and no notification. The alarm is
+	 * inexact and non-waking, so while the device is idle it simply stops
+	 * firing and picks back up when the screen does. Every render re-arms it,
+	 * resetting the timer, so a kill is noticed at most one period after the
+	 * last render.
+	 */
+	private fun scheduleHeartbeat(context: Context) {
+		val alarm = context.getSystemService(Context.ALARM_SERVICE) as AlarmManager
+		val intent = Intent(context, MuteWidget::class.java).setAction(ACTION_HEARTBEAT)
+		val pending = PendingIntent.getBroadcast(
+			context,
+			0,
+			intent,
+			PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE,
+		)
+		alarm.set(AlarmManager.ELAPSED_REALTIME, SystemClock.elapsedRealtime() + HEARTBEAT_PERIOD_MS, pending)
 	}
 
 	private fun mutePendingIntent(context: Context): PendingIntent {
@@ -332,9 +385,20 @@ class MuteWidget : AppWidgetProvider() {
 
 	companion object {
 		private const val ACTION_MUTE = "dk.ftb.soundmutewidget.ACTION_MUTE"
+		private const val ACTION_HEARTBEAT = "dk.ftb.soundmutewidget.ACTION_HEARTBEAT"
 		private const val ACTION_VOLUME_CHANGED = "android.media.VOLUME_CHANGED_ACTION"
 		private const val ACTION_STREAM_MUTE_CHANGED = "android.media.STREAM_MUTE_CHANGED_ACTION"
 		private const val UPDATE_DEBOUNCE_MS = 150L
+
+		/**
+		 * How often the keep-alive alarm fires while the screen is on. It exists to
+		 * notice the process was killed (One UI does so within a minute or two) and
+		 * revive it, not to poll the volume — while the process is alive, the
+		 * observers above update it instantly and a firing is only a cheap
+		 * re-render. The cost that scales with this is process restarts: each
+		 * period after a kill means one cold start of a dead process.
+		 */
+		private const val HEARTBEAT_PERIOD_MS = 30_000L
 
 		/**
 		 * How long volume updates hold off after a sweep, covering the longest
